@@ -1,31 +1,29 @@
-const http = require('http');
+require('dotenv').config();
+const express = require('express');
 const routes = require('./routes');
 
+const app = express();
 const PORT = process.env.PORT || 3000;
 
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const method = req.method;
-  let route = routes[url.pathname];
+// Middleware to parse JSON (if needed in future)
+app.use(express.json());
 
-  // Handle parameterized routes like /stock/:param
-  if (!route && url.pathname.startsWith('/stock/')) {
-    const param = url.pathname.split('/stock/')[1];
-    if (param) {
-      req.param = param;
-      route = routes['/stock'];
-    }
-  }
-
-  if (route && route[method]) {
-    route[method](req, res);
-  } else {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
-  }
+// Register routes
+Object.keys(routes).forEach(path => {
+  const route = routes[path];
+  Object.keys(route).forEach(method => {
+    app[method.toLowerCase()](path, route[method]);
+  });
 });
 
-server.listen(PORT, () => {
+// Handle parameterized route /stock/:param
+app.get('/stock/:param', require('./controllers/stockController').getStock);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-

@@ -6,7 +6,7 @@ const formatRoutes = (routes) => {
     formattedRoutes[path] = methods;
   });
 
-  // Add parameterized routes
+  // Add parameterized routes (Express handles these)
   formattedRoutes['/stock/:param'] = ['GET'];
 
   return formattedRoutes;

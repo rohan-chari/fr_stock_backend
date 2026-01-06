@@ -2,18 +2,32 @@ const stockService = require('../services/stockService');
 
 const getStock = async (req, res) => {
   try {
-    const param = req.param;
+    const param = req.params.param;
     const result = await stockService.getStockByParam(param);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(result));
+    res.json(result);
   } catch (error) {
     console.error('Error in getStock:', error);
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: error.message }));
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const searchStock = async (req, res) => {
+  try {
+    const query = req.query.q || req.query.query || req.query.keywords || '';
+    if (!query) {
+      res.status(400).json({ error: 'Query parameter is required (q, query, or keywords)' });
+      return;
+    }
+    const result = await stockService.searchStock(query);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in searchStock:', error);
+    res.status(500).json({ error: error.message });
   }
 };
 
 module.exports = {
-  getStock
+  getStock,
+  searchStock
 };
 
