@@ -7,7 +7,7 @@ const redditScraper = new BaseScraper({
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const scrapeRedditStock = async (param) => {
+const searchRedditStock = async (param) => {
   try {
     const searchUrl = `/search?q=${encodeURIComponent(param)}&type=posts&sort=hot`;
     
@@ -74,15 +74,21 @@ const scrapeRedditStock = async (param) => {
           // Only include posts with t3_ ID (Reddit post identifier)
           if (!postId.startsWith('t3_')) return;
           
-          // Get time ago
+          // Get post datetime from time element's datetime attribute
           const timeElement = postEl.querySelector('time');
-          const timeAgo = timeElement ? timeElement.textContent.trim() : '';
+          let postTime = null;
+          if (timeElement) {
+            const datetimeAttr = timeElement.getAttribute('datetime');
+            if (datetimeAttr) {
+              postTime = new Date(datetimeAttr).toISOString();
+            }
+          }
           
           posts.push({
             id: postId,
             title: title,
             url: fullUrl,
-            timeAgo: timeAgo
+            postTime: postTime
           });
         });
         
@@ -92,7 +98,7 @@ const scrapeRedditStock = async (param) => {
           posts: posts
         };
       }, param);
-      
+      console.log(data);
       return data;
     });
     
@@ -104,6 +110,6 @@ const scrapeRedditStock = async (param) => {
 };
 
 module.exports = {
-  scrapeRedditStock
+  searchRedditStock
 };
 

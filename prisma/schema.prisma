@@ -1,0 +1,43 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model Stock {
+  id           Int    @id @default(autoincrement())
+  symbol       String @unique
+  description  String
+  displaySymbol String
+  type         String
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  redditPosts  RedditPost[]
+
+  @@map("stocks")
+}
+
+model RedditPost {
+  id           Int      @id @default(autoincrement())
+  redditId     String   @unique
+  url          String
+  postTime     DateTime
+  stockId      Int
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  stock        Stock    @relation(fields: [stockId], references: [id])
+
+  @@map("reddit_posts")
+}
