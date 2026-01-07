@@ -33,6 +33,7 @@ model RedditPost {
   url          String
   postTime     DateTime
   stockId      Int
+  scrapedAt    DateTime?
   
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
