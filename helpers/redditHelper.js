@@ -1,6 +1,7 @@
 const { BaseScraper } = require('../utils');
 const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
+const { SCRAPE_INTERVALS, MAX_POST_AGE_MS, RATE_LIMIT } = require('../config').redditScraper;
 
 const prisma = new PrismaClient();
 const redditScraper = new BaseScraper({
@@ -71,139 +72,182 @@ const searchRedditStock = async (param) => {
   }
 };
 
+/**
+ * Determines if a post should be scraped based on its age and last scrape time.
+ * Uses age-based intervals from configuration.
+ * 
+ * @param {Object} post - Post object with postTime and scrapedAt properties
+ * @returns {boolean} - True if post should be scraped, false otherwise
+ */
+const shouldScrapePost = (post) => {
+  const now = Date.now();
+  const postAge = now - post.postTime.getTime();
+  
+  // Don't scrape posts older than the maximum age threshold
+  if (postAge >= MAX_POST_AGE_MS) {
+    return false;
+  }
+  
+  // If never scraped, always scrape (as long as it's not too old)
+  if (!post.scrapedAt) {
+    return true;
+  }
+  
+  // Find the appropriate interval rule based on post age
+  const rule = SCRAPE_INTERVALS.find(r => postAge < r.maxAgeMs);
+  if (!rule) {
+    return false; // Shouldn't happen, but safety check
+  }
+  
+  // Check if enough time has passed since last scrape
+  const timeSinceLastScrape = now - post.scrapedAt.getTime();
+  return timeSinceLastScrape >= rule.intervalMs;
+};
+
 const scrapeRedditPostContent = async () => {
   try {
-    // Calculate the time 10 minutes ago
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-    
-    // Query posts where scrapedAt is null OR more than 10 minutes old - just get the first one
-    const postsToScrape = await prisma.redditPost.findMany({
-      where: {
-        OR: [
-          { scrapedAt: null },
-          { scrapedAt: { lt: tenMinutesAgo } }
-        ]
-      },
-      take: 1
+    // Get all posts and filter by age-based rules
+    const allPosts = await prisma.redditPost.findMany({
+      include: {
+        content: true // Include content relation to check if exists
+      }
     });
+    
+    // Filter posts that should be scraped based on age-based rules
+    const postsToScrape = allPosts.filter(shouldScrapePost);
     
     if (postsToScrape.length === 0) {
       console.log('No posts to scrape');
       return;
     }
     
-    const post = postsToScrape[0];
-    console.log(`\nScraping post: ${post.url}`);
+    console.log(`Found ${postsToScrape.length} posts to scrape\n`);
     
-    try {
-      // Step 1: Extract post_id and subreddit from HTML
-      const htmlData = await redditScraper.scrapeWithPage(post.url, async (page) => {
-        await page.waitForSelector('body', { timeout: 10000 });
-        await sleep(2000);
+    // Process each post
+    for (let i = 0; i < postsToScrape.length; i++) {
+      const post = postsToScrape[i];
+      console.log(`\n[${i + 1}/${postsToScrape.length}] Scraping post: ${post.url}`);
+      
+      try {
+        // Fetch post and comments from Reddit JSON API
+        const jsonUrl = post.url.endsWith('/') ? `${post.url}.json` : `${post.url}/.json`;
         
-        const data = await page.evaluate(() => {
-          // Find the shreddit-post element
-          const postElement = document.querySelector('shreddit-post');
-          
-          if (!postElement) {
-            return { post_id: null, subreddit: null };
+        const jsonResponse = await axios.get(jsonUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           }
-          
-          // Extract post_id (t3_xxx) from id attribute
-          const postId = postElement.getAttribute('id') || '';
-          
-          // Extract subreddit from subreddit-prefixed-name attribute
-          const subreddit = postElement.getAttribute('subreddit-prefixed-name') || 
-                          postElement.getAttribute('subreddit-name') || '';
-          
-          return {
-            post_id: postId,
-            subreddit: subreddit
-          };
         });
         
-        return data;
-      });
-      
-      if (!htmlData.post_id) {
-        console.error('Could not extract post_id from HTML');
-        return;
-      }
-      
-      // Step 2: Fetch comments from Reddit JSON API
-      const jsonUrl = post.url.endsWith('/') ? `${post.url}.json` : `${post.url}/.json`;
-      
-      const jsonResponse = await axios.get(jsonUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-      
-      // Reddit JSON API returns an array: [post_data, comments_data]
-      const postDataJson = jsonResponse.data[0]?.data?.children[0]?.data;
-      const commentsData = jsonResponse.data[1]?.data?.children || [];
-      
-      // Extract post data from JSON
-      const postData = {
-        post_id: htmlData.post_id,
-        subreddit: htmlData.subreddit,
-        title: postDataJson?.title || '',
-        url: postDataJson?.url || post.url,
-        author: postDataJson?.author || '',
-        score: postDataJson?.score || 0,
-        created_utc: postDataJson?.created_utc || null,
-        num_comments: postDataJson?.num_comments || 0,
-        selftext: postDataJson?.selftext || '' // Post body/content
-      };
-      
-      // Recursive function to extract all comments (flattened with parent_id for threading)
-      const extractAllComments = (children, postId, parentId = null, depth = 0) => {
-        const comments = [];
+        // Reddit JSON API returns an array: [post_data, comments_data]
+        const postDataJson = jsonResponse.data[0]?.data?.children[0]?.data;
+        const commentsData = jsonResponse.data[1]?.data?.children || [];
         
-        for (const child of children) {
-          if (child.kind === 't1') { // t1 is a comment
-            const commentData = child.data;
-            const commentId = commentData.name; // e.g., "t1_nxur05e"
-            
-            const comment = {
-              comment_id: commentId,
-              post_id: postId,
-              parent_id: parentId || postId, // parent_id is the parent comment or post
-              author: commentData.author || '',
-              body: commentData.body || '',
-              score: commentData.score || 0,
-              created_utc: commentData.created_utc || null,
-              depth: depth
-            };
-            
-            comments.push(comment);
-            
-            // Recursively extract replies (use this comment as parent)
-            if (commentData.replies && commentData.replies.data && commentData.replies.data.children) {
-              const replies = extractAllComments(commentData.replies.data.children, postId, commentId, depth + 1);
-              comments.push(...replies);
+        if (!postDataJson) {
+          console.error('Could not extract post data from JSON');
+          continue; // Skip to next post
+        }
+        
+        // Extract post data from JSON (all data is available here)
+        const postData = {
+          post_id: postDataJson.name || '', // e.g., "t3_1q4sfvk"
+          subreddit: postDataJson.subreddit_name_prefixed || `r/${postDataJson.subreddit || ''}`,
+          title: postDataJson.title || '',
+          url: postDataJson.url || post.url,
+          author: postDataJson.author || '',
+          score: postDataJson.score || 0,
+          created_utc: postDataJson.created_utc || null,
+          num_comments: postDataJson.num_comments || 0,
+          selftext: postDataJson.selftext || '' // Post body/content
+        };
+        
+        // Recursive function to extract all comments (flattened with parent_id for threading)
+        const extractAllComments = (children, postId, parentId = null, depth = 0) => {
+          const comments = [];
+          
+          for (const child of children) {
+            if (child.kind === 't1') { // t1 is a comment
+              const commentData = child.data;
+              const commentId = commentData.name; // e.g., "t1_nxur05e"
+              
+              const comment = {
+                comment_id: commentId,
+                post_id: postId,
+                parent_id: parentId || postId, // parent_id is the parent comment or post
+                author: commentData.author || '',
+                body: commentData.body || '',
+                score: commentData.score || 0,
+                created_utc: commentData.created_utc || null,
+                depth: depth
+              };
+              
+              comments.push(comment);
+              
+              // Recursively extract replies (use this comment as parent)
+              if (commentData.replies && commentData.replies.data && commentData.replies.data.children) {
+                const replies = extractAllComments(commentData.replies.data.children, postId, commentId, depth + 1);
+                comments.push(...replies);
+              }
             }
           }
+          
+          return comments;
+        };
+        
+        const allComments = extractAllComments(commentsData, postData.post_id);
+        
+        // Build the result object
+        const result = {
+          post: postData,
+          comments: allComments
+        };
+        
+        // Save to database
+        const now = new Date();
+        
+        // Upsert the content (create or update if exists)
+        await prisma.redditPostContent.upsert({
+          where: { redditPostId: post.id },
+          update: {
+            postContent: postData,
+            comments: allComments,
+            scrapedAt: now,
+            updatedAt: now
+          },
+          create: {
+            redditPostId: post.id,
+            postContent: postData,
+            comments: allComments,
+            scrapedAt: now
+          }
+        });
+        
+        // Update scrapedAt in reddit_posts table
+        await prisma.redditPost.update({
+          where: { id: post.id },
+          data: { scrapedAt: now }
+        });
+        
+        console.log(`Saved content for post ${post.redditId}`);
+        console.log(`Post content saved, ${allComments.length} comments saved`);
+        
+        // Console log the result as JSON
+        console.log(JSON.stringify(result, null, 2));
+        
+        // Sleep between posts (random delay within configured rate limit range)
+        if (i < postsToScrape.length - 1) {
+          const sleepTime = Math.random() * (RATE_LIMIT.MAX_DELAY_MS - RATE_LIMIT.MIN_DELAY_MS) + RATE_LIMIT.MIN_DELAY_MS;
+          console.log(`\nWaiting ${(sleepTime / 1000).toFixed(2)} seconds before next post...`);
+          await sleep(sleepTime);
         }
         
-        return comments;
-      };
-      
-      const allComments = extractAllComments(commentsData, htmlData.post_id);
-      
-      // Build the result object
-      const result = {
-        post: postData,
-        comments: allComments
-      };
-      
-      // Console log the result as JSON
-      console.log(JSON.stringify(result, null, 2));
-      
-    } catch (error) {
-      console.error(`Error scraping post ${post.url}:`, error);
-      throw error;
+      } catch (error) {
+        console.error(`Error scraping post ${post.url}:`, error);
+        // Continue to next post instead of throwing
+        continue;
+      }
     }
+    
+    console.log(`\nCompleted scraping ${postsToScrape.length} posts`);
     
   } catch (error) {
     console.error('Error in scrapeRedditPostContent:', error);

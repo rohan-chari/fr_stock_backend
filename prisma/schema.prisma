@@ -39,6 +39,22 @@ model RedditPost {
   updatedAt    DateTime @updatedAt
   
   stock        Stock    @relation(fields: [stockId], references: [id])
+  content      RedditPostContent?
 
   @@map("reddit_posts")
+}
+
+model RedditPostContent {
+  id           Int      @id @default(autoincrement())
+  redditPostId Int      @unique
+  postContent  Json
+  comments     Json
+  scrapedAt    DateTime @default(now())
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  redditPost   RedditPost @relation(fields: [redditPostId], references: [id], onDelete: Cascade)
+
+  @@map("reddit_posts_content")
 }

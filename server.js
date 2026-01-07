@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const routes = require('./routes');
+const { startRedditScraperJob } = require('./jobs/redditScraperJob');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -47,4 +48,7 @@ process.on('uncaughtException', (error) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Start scheduled jobs
+  startRedditScraperJob();
 });
