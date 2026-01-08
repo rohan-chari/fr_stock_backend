@@ -68,6 +68,8 @@ model RedditComment {
   createdAtUtc DateTime
   scrapedAt    DateTime @default(now())
   sentToAIAt   DateTime?
+  sentiment    Float?
+  flagForDelete Boolean  @default(false)
 
   redditPost   RedditPost @relation(fields: [redditPostId], references: [id], onDelete: Cascade)
 

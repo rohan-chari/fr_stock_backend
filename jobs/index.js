@@ -6,12 +6,14 @@
  */
 
 const redditScraperJob = require('./redditScraperJob');
+const sentimentAnalysisJob = require('./sentimentAnalysisJob');
 
 /**
  * Starts all scheduled jobs
  */
 const startAllJobs = () => {
   redditScraperJob.startRedditScraperJob();
+  sentimentAnalysisJob.startSentimentAnalysisJob();
 };
 
 /**
@@ -19,6 +21,7 @@ const startAllJobs = () => {
  */
 const stopAllJobs = () => {
   redditScraperJob.stopRedditScraperJob();
+  sentimentAnalysisJob.stopSentimentAnalysisJob();
 };
 
 /**
@@ -26,7 +29,8 @@ const stopAllJobs = () => {
  */
 const getAllJobsStatus = () => {
   return {
-    redditScraper: redditScraperJob.getJobStatus()
+    redditScraper: redditScraperJob.getJobStatus(),
+    sentimentAnalysis: sentimentAnalysisJob.getJobStatus()
   };
 };
 
@@ -34,6 +38,7 @@ module.exports = {
   startAllJobs,
   stopAllJobs,
   getAllJobsStatus,
-  redditScraperJob
+  redditScraperJob,
+  sentimentAnalysisJob
 };
 

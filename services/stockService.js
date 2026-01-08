@@ -1,13 +1,12 @@
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
 const { redditHelper } = require('../helpers');
+const { scrapeRedditPostContent } = require('../helpers/redditHelper');
 
 const prisma = new PrismaClient();
 
 const getStockByParam = async (param) => {
-  const result = await redditHelper.searchRedditStock(param);
-  
-  // Find or create the stock in the database
+  // Find or create the stock in the database first
   let stock = null;
   if (param) {
     try {
@@ -30,31 +29,94 @@ const getStockByParam = async (param) => {
       console.error(`Error finding/creating stock ${param}:`, error.message);
     }
   }
+
+  // Check if we should scrape (only if 5+ minutes since last search)
+  let shouldScrape = true;
+  let result = null;
   
-  // Save posts to database
-  if (result && result.posts && Array.isArray(result.posts) && stock) {
-    for (const post of result.posts) {
-      try {
-        // Only save if we have required fields
-        if (post.id && post.url && post.postTime) {
-          await prisma.redditPost.upsert({
-            where: { redditId: post.id },
-            update: {
-              url: post.url,
-              postTime: new Date(post.postTime),
-              stockId: stock.id
-            },
-            create: {
-              redditId: post.id,
-              url: post.url,
-              postTime: new Date(post.postTime),
-              stockId: stock.id
-            }
+  if (stock) {
+    try {
+      // Find the most recent updatedAt timestamp for posts of this stock (tracks when we last searched)
+      const mostRecentPost = await prisma.redditPost.findFirst({
+        where: { stockId: stock.id },
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true }
+      });
+
+      if (mostRecentPost && mostRecentPost.updatedAt) {
+        const now = new Date();
+        const lastSearched = new Date(mostRecentPost.updatedAt);
+        const minutesSinceLastSearch = (now - lastSearched) / (1000 * 60);
+        
+        // Only scrape if it's been 5+ minutes
+        if (minutesSinceLastSearch < 5) {
+          shouldScrape = false;
+          
+          // Return posts from database instead
+          const dbPosts = await prisma.redditPost.findMany({
+            where: { stockId: stock.id },
+            orderBy: { postTime: 'desc' }
           });
+
+          result = {
+            param,
+            stockSymbol: param,
+            totalPosts: dbPosts.length,
+            posts: dbPosts.map(post => ({
+              id: post.redditId,
+              title: '', // Not stored in reddit_posts table
+              url: post.url,
+              postTime: post.postTime.toISOString()
+            }))
+          };
         }
+      }
+    } catch (error) {
+      console.error(`Error checking last search time for ${param}:`, error.message);
+      // Continue with scrape if check fails
+    }
+  }
+
+  // Perform Reddit scrape if needed
+  if (shouldScrape) {
+    result = await redditHelper.searchRedditStock(param);
+    
+    // Save posts to database (don't set scrapedAt - that's for content scraping)
+    if (result && result.posts && Array.isArray(result.posts) && stock) {
+      for (const post of result.posts) {
+        try {
+          // Only save if we have required fields
+          if (post.id && post.url && post.postTime) {
+            await prisma.redditPost.upsert({
+              where: { redditId: post.id },
+              update: {
+                url: post.url,
+                postTime: new Date(post.postTime),
+                stockId: stock.id
+                // Don't set scrapedAt here - that's for content scraping
+              },
+              create: {
+                redditId: post.id,
+                url: post.url,
+                postTime: new Date(post.postTime),
+                stockId: stock.id
+                // scrapedAt stays null so scrapeRedditPostContent will pick it up
+              }
+            });
+          }
+        } catch (error) {
+          // Log error but don't fail the request
+          console.error(`Error saving Reddit post ${post.id} to database:`, error.message);
+        }
+      }
+      
+      // After saving posts, scrape their content and comments
+      console.log(`Scraping content for newly discovered posts for ${param}...`);
+      try {
+        await scrapeRedditPostContent();
       } catch (error) {
-        // Log error but don't fail the request
-        console.error(`Error saving Reddit post ${post.id} to database:`, error.message);
+        console.error(`Error scraping post content for ${param}:`, error.message);
+        // Don't fail the request if content scraping fails
       }
     }
   }

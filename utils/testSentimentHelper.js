@@ -1,11 +1,11 @@
 require('dotenv').config();
-const { getRedditPostContent } = require('../helpers/sentimentHelper');
+const { calcSentiment } = require('../helpers/sentimentHelper');
 
 const runTest = async () => {
   try {
     console.log('Testing sentimentHelper - fetching Reddit post content...\n');
     
-    const postContent = await getRedditPostContent();
+    const postContent = await calcSentiment();
     console.log('\nTest completed');
     process.exit(0);
   } catch (error) {

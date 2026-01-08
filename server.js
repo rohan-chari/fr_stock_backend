@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const routes = require('./routes');
 const { startRedditScraperJob } = require('./jobs/redditScraperJob');
+const { startSentimentAnalysisJob } = require('./jobs/sentimentAnalysisJob');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,4 +52,5 @@ app.listen(PORT, () => {
   
   // Start scheduled jobs
   startRedditScraperJob();
+  startSentimentAnalysisJob();
 });

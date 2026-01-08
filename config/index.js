@@ -7,9 +7,11 @@
 
 const redditScraperConfig = require('./redditScraper');
 const schedulerConfig = require('./scheduler');
+const openai = require('./openai');
 
 module.exports = {
   redditScraper: redditScraperConfig,
-  scheduler: schedulerConfig
+  scheduler: schedulerConfig,
+  openai
 };
 

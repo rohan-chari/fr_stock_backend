@@ -16,6 +16,17 @@ module.exports = {
     schedule: '*/5 * * * *', // Every 5 minutes (cron: */5 * * * *)
     enabled: process.env.ENABLE_REDDIT_SCRAPER !== 'false', // Enabled by default, can be disabled via env var
     timezone: 'America/New_York' // Optional: specify timezone
+  },
+  /**
+   * Sentiment analysis schedule
+   * Runs every 5 minutes to analyze Reddit comments for sentiment
+   * 
+   * Cron format: minute hour day month weekday
+   */
+  SENTIMENT_ANALYSIS: {
+    schedule: '*/1 * * * *', // Every 1 minute (cron: */1 * * * *)
+    enabled: process.env.ENABLE_SENTIMENT_ANALYSIS !== 'false', // Enabled by default, can be disabled via env var
+    timezone: 'America/New_York' // Optional: specify timezone
   }
 };
 

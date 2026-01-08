@@ -1,19 +1,36 @@
-const { BaseScraper } = require('../utils');
 const { PrismaClient } = require('@prisma/client');
 const axios = require('axios');
 const { SCRAPE_INTERVALS, MAX_POST_AGE_MS, RATE_LIMIT } = require('../config').redditScraper;
 
 const prisma = new PrismaClient();
-const redditScraper = new BaseScraper({
-  baseURL: 'https://www.reddit.com',
-  headless: false
-});
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const searchRedditStock = async (param) => {
   try {
     const searchUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(param)}&type=link&sort=hot`;
+ 
+    const stockSubbredditSearch = `https://www.reddit.com/search.json?q=${encodeURIComponent(param)} stock official subreddit&type=communities`;
+    
+    // Fetch subreddit search results
+    try {
+      const subredditResponse = await axios.get(stockSubbredditSearch, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      // Extract first subreddit (t5) from the response
+      const subredditChildren = subredditResponse.data?.data?.children || [];
+      const firstSubreddit = subredditChildren.find(child => child.kind === 't5');
+      
+      if (firstSubreddit) {
+        console.log('First subreddit:', JSON.stringify(firstSubreddit, null, 2));
+      } else {
+        console.log('No subreddits found in response');
+      }
+    } catch (subredditError) {
+      console.error('Error fetching subreddit search:', subredditError.message);
+    }
     
     // Fetch JSON directly from Reddit API
     const response = await axios.get(searchUrl, {
@@ -117,16 +134,12 @@ const scrapeRedditPostContent = async () => {
     const postsToScrape = allPosts.filter(shouldScrapePost);
     
     if (postsToScrape.length === 0) {
-      console.log('No posts to scrape');
       return;
     }
-    
-    console.log(`Found ${postsToScrape.length} posts to scrape\n`);
     
     // Process each post
     for (let i = 0; i < postsToScrape.length; i++) {
       const post = postsToScrape[i];
-      console.log(`\n[${i + 1}/${postsToScrape.length}] Scraping post: ${post.url}`);
       
       try {
         // Fetch post and comments from Reddit JSON API
@@ -268,16 +281,9 @@ const scrapeRedditPostContent = async () => {
           data: { scrapedAt: now }
         });
         
-        console.log(`Saved content for post ${post.redditId}`);
-        console.log(`Post content saved, ${savedCommentsCount}/${allComments.length} comments saved (${filteredCommentsCount} filtered out)`);
-        
-        // Console log the result as JSON
-        console.log(JSON.stringify(result, null, 2));
-        
         // Sleep between posts (random delay within configured rate limit range)
         if (i < postsToScrape.length - 1) {
           const sleepTime = Math.random() * (RATE_LIMIT.MAX_DELAY_MS - RATE_LIMIT.MIN_DELAY_MS) + RATE_LIMIT.MIN_DELAY_MS;
-          console.log(`\nWaiting ${(sleepTime / 1000).toFixed(2)} seconds before next post...`);
           await sleep(sleepTime);
         }
         
@@ -287,8 +293,6 @@ const scrapeRedditPostContent = async () => {
         continue;
       }
     }
-    
-    console.log(`\nCompleted scraping ${postsToScrape.length} posts`);
     
   } catch (error) {
     console.error('Error in scrapeRedditPostContent:', error);
