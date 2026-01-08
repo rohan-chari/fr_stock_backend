@@ -22,6 +22,23 @@ const getRedditPostContent = async () => {
       console.log('No Reddit post content found in database');
       return null;
     }
+    
+    // Organize data for sentiment analysis
+    const sentimentData = {
+      post: {
+        body: postContent.postContent?.selftext || '',
+        upvotes: postContent.postContent?.score || 0,
+        sentiment: 0
+      },
+      comments: (postContent.comments || []).map(comment => ({
+        body: comment.body || '',
+        upvotes: comment.score || 0,
+        sentiment: 0
+      }))
+    };
+    
+    console.log(JSON.stringify(sentimentData, null, 2));
+
     return postContent;
   } catch (error) {
     console.error('Error fetching Reddit post content:', error);

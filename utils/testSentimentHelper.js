@@ -6,7 +6,6 @@ const runTest = async () => {
     console.log('Testing sentimentHelper - fetching Reddit post content...\n');
     
     const postContent = await getRedditPostContent();
-    console.log(postContent);
     console.log('\nTest completed');
     process.exit(0);
   } catch (error) {
