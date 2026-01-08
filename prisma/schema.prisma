@@ -40,6 +40,7 @@ model RedditPost {
   
   stock        Stock    @relation(fields: [stockId], references: [id])
   content      RedditPostContent?
+  comments     RedditComment[]
 
   @@map("reddit_posts")
 }
@@ -48,7 +49,6 @@ model RedditPostContent {
   id           Int      @id @default(autoincrement())
   redditPostId Int      @unique
   postContent  Json
-  comments     Json
   scrapedAt    DateTime @default(now())
   
   createdAt    DateTime @default(now())
@@ -57,4 +57,20 @@ model RedditPostContent {
   redditPost   RedditPost @relation(fields: [redditPostId], references: [id], onDelete: Cascade)
 
   @@map("reddit_posts_content")
+}
+
+model RedditComment {
+  id           Int      @id @default(autoincrement())
+  redditId     String   @unique      // t1_xxxxx
+  redditPostId Int
+  body         String
+  upvotes      Int
+  createdAtUtc DateTime
+  scrapedAt    DateTime @default(now())
+  sentToAIAt   DateTime?
+
+  redditPost   RedditPost @relation(fields: [redditPostId], references: [id], onDelete: Cascade)
+
+  @@index([redditPostId])
+  @@map("reddit_comments")
 }

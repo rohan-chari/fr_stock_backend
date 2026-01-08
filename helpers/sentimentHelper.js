@@ -3,12 +3,18 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 /**
- * Gets a single Reddit post content record from the database
- * @returns {Promise<Object|null>} A single RedditPostContent record or null if none found
+ * Fetches comments from redditComments table in groups of 20
+ * @returns {Promise<Array>} Array of comment objects with stock ticker, body, upvotes, sentiment, and flagForDelete
  */
 const getRedditPostContent = async () => {
   try {
-    const postContent = await prisma.redditPostContent.findFirst({
+    // Fetch first 20 comments with their associated post and stock information
+    // Only fetch comments where sentToAIAt is null (not yet sent to AI)
+    const comments = await prisma.redditComment.findMany({
+      where: {
+        sentToAIAt: null
+      },
+      take: 20,
       include: {
         redditPost: {
           include: {
@@ -18,30 +24,25 @@ const getRedditPostContent = async () => {
       }
     });
 
-    if (!postContent) {
-      console.log('No Reddit post content found in database');
-      return null;
+    if (comments.length === 0) {
+      console.log('No Reddit comments found in database');
+      return [];
     }
-    
-    // Organize data for sentiment analysis
-    const sentimentData = {
-      post: {
-        body: postContent.postContent?.selftext || '',
-        upvotes: postContent.postContent?.score || 0,
-        sentiment: 0
-      },
-      comments: (postContent.comments || []).map(comment => ({
-        body: comment.body || '',
-        upvotes: comment.score || 0,
-        sentiment: 0
-      }))
-    };
+
+    // Create objects with the required structure
+    const sentimentData = comments.map(comment => ({
+      stockTicker: comment.redditPost?.stock?.symbol || '',
+      body: comment.body || '',
+      upvotes: comment.upvotes || 0,
+      sentiment: 0,
+      flagForDelete: false
+    }));
     
     console.log(JSON.stringify(sentimentData, null, 2));
 
-    return postContent;
+    return sentimentData;
   } catch (error) {
-    console.error('Error fetching Reddit post content:', error);
+    console.error('Error fetching Reddit comments:', error);
     throw error;
   }
 };

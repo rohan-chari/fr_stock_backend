@@ -204,22 +204,63 @@ const scrapeRedditPostContent = async () => {
         // Save to database
         const now = new Date();
         
-        // Upsert the content (create or update if exists)
+        // Upsert the content (create or update if exists) - no longer saving comments here
         await prisma.redditPostContent.upsert({
           where: { redditPostId: post.id },
           update: {
             postContent: postData,
-            comments: allComments,
             scrapedAt: now,
             updatedAt: now
           },
           create: {
             redditPostId: post.id,
             postContent: postData,
-            comments: allComments,
             scrapedAt: now
           }
         });
+        
+        // Save each comment as a separate row in the reddit_comments table
+        // Filter: only save comments with (score >= 2 OR score <= -2) AND body length >= 10
+        let savedCommentsCount = 0;
+        let filteredCommentsCount = 0;
+        for (const comment of allComments) {
+          try {
+            const commentScore = comment.score || 0;
+            const commentBody = comment.body || '';
+            
+            // Apply filters: score must be >= 2 or <= -2, AND body must be >= 10 characters
+            if ((commentScore >= 2 || commentScore <= -2) && commentBody.length >= 10) {
+              // Convert created_utc (Unix timestamp) to DateTime
+              const createdAtUtc = comment.created_utc 
+                ? new Date(comment.created_utc * 1000)
+                : new Date();
+              
+              await prisma.redditComment.upsert({
+                where: { redditId: comment.comment_id },
+                update: {
+                  body: commentBody,
+                  upvotes: commentScore,
+                  createdAtUtc: createdAtUtc,
+                  scrapedAt: now
+                },
+                create: {
+                  redditId: comment.comment_id,
+                  redditPostId: post.id,
+                  body: commentBody,
+                  upvotes: commentScore,
+                  createdAtUtc: createdAtUtc,
+                  scrapedAt: now
+                }
+              });
+              savedCommentsCount++;
+            } else {
+              filteredCommentsCount++;
+            }
+          } catch (commentError) {
+            console.error(`Error saving comment ${comment.comment_id}:`, commentError);
+            // Continue with next comment instead of failing entire post
+          }
+        }
         
         // Update scrapedAt in reddit_posts table
         await prisma.redditPost.update({
@@ -228,7 +269,7 @@ const scrapeRedditPostContent = async () => {
         });
         
         console.log(`Saved content for post ${post.redditId}`);
-        console.log(`Post content saved, ${allComments.length} comments saved`);
+        console.log(`Post content saved, ${savedCommentsCount}/${allComments.length} comments saved (${filteredCommentsCount} filtered out)`);
         
         // Console log the result as JSON
         console.log(JSON.stringify(result, null, 2));
