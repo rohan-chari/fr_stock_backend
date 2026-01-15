@@ -4,6 +4,7 @@ const { searchRedditStock, scrapePostsByIds } = require('./redditService');
 
 /**
  * Formats posts from database into API response format
+ * Includes comments with sentiment data
  */
 const formatPostsResponse = (param, posts) => {
   return {
@@ -14,7 +15,14 @@ const formatPostsResponse = (param, posts) => {
       id: post.redditId,
       title: post.content?.postContent?.title || '',
       url: post.url,
-      postTime: post.postTime.toISOString()
+      postTime: post.postTime.toISOString(),
+      comments: (post.comments || []).map(comment => ({
+        id: comment.redditId,
+        body: comment.body,
+        upvotes: comment.upvotes,
+        sentiment: comment.sentiment,
+        createdAt: comment.createdAtUtc.toISOString()
+      }))
     }))
   };
 };
@@ -106,7 +114,12 @@ const getStockByParam = async (param) => {
   // Check if we have existing posts with content - if so, return immediately
   const existingPosts = await prisma.redditPost.findMany({
     where: { stockId: stock.id },
-    include: { content: true },
+    include: {
+      content: true,
+      comments: {
+        orderBy: { createdAtUtc: 'desc' }
+      }
+    },
     orderBy: { postTime: 'desc' }
   });
 
