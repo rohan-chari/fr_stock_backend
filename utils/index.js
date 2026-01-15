@@ -1,6 +1,12 @@
-const BaseScraper = require('./baseScraper');
+/**
+ * Utils Module
+ *
+ * Centralized utility exports for the application.
+ */
+
+const routeHelper = require('./routeHelper');
 
 module.exports = {
-  BaseScraper
+  routeHelper
 };
 

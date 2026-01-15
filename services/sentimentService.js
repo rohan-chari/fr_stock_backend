@@ -1,7 +1,11 @@
-const { PrismaClient } = require('@prisma/client');
-const openai = require('../config/openai');
+/**
+ * Sentiment Service
+ *
+ * Handles sentiment analysis of Reddit comments using OpenAI.
+ */
 
-const prisma = new PrismaClient();
+const prisma = require('../config/database');
+const openai = require('../config/openai');
 
 /**
  * Calculates sentiment for Reddit comments
@@ -30,11 +34,11 @@ const calcSentiment = async () => {
     }
 
     const analyzedComments = [];
-    
+
     // Process each comment individually
     for (let i = 0; i < comments.length; i++) {
       const comment = comments[i];
-      
+
       try {
         // Create object with the required structure
         const commentData = {
@@ -49,10 +53,10 @@ const calcSentiment = async () => {
 
         // Analyze single comment
         const analyzedComment = await analyzeSentiment(commentData);
-        
+
         if (analyzedComment) {
           analyzedComments.push(analyzedComment);
-          
+
           // Update database immediately after each analysis
           const now = new Date();
           await prisma.redditComment.update({
@@ -88,10 +92,10 @@ async function analyzeSentiment(comment) {
           role: 'system',
            content: `You are a financial sentiment scoring engine. You calculate sentiment deterministically.
  No opinions. No explanations. JSON only. If the comment is a link to a meme/video or not about a company set flagForDelete to true.
- and ignore all following instructions. Instructions: You are in charge of 2 fields, sentiment and flagForDelete. 
+ and ignore all following instructions. Instructions: You are in charge of 2 fields, sentiment and flagForDelete.
  Based on the tone of the comment, you will add and subtract value to the sentiment field. A final (and max) score of 1
- means ultra bullish. A final (and min) score of -1 means ultra bearish. A score of 0 means neutral. 
- Step 1: you will assign a base value as follows: 
+ means ultra bullish. A final (and min) score of -1 means ultra bearish. A score of 0 means neutral.
+ Step 1: you will assign a base value as follows:
  - +0.90 → extreme bullish conviction, long-term hold, major upside
  - +0.65 → strong bullish stance, clear optimism
  - +0.30 → mild bullish, optimistic but cautious
@@ -112,7 +116,7 @@ async function analyzeSentiment(comment) {
  overvalued, bad quarter, slowdown
  - Each occurrence: -0.02
  - Maximum total decrease: -0.10
- Step 3. Take the currently calculated sentiment and perform the following calculations: 
+ Step 3. Take the currently calculated sentiment and perform the following calculations:
  0–5 upvotes/downvotes → +0.00
  6–20 upvotes/downvotes → + or -0.02
  21–50 upvotes/downvotes → + or -0.04
@@ -127,11 +131,11 @@ async function analyzeSentiment(comment) {
         }
       ]
     });
-    
+
     // Parse the JSON response
     const responseContent = response.choices[0].message.content;
     const parsedResponse = JSON.parse(responseContent);
-    
+
     // Return the analyzed comment (should be a single object, not an array)
     return parsedResponse;
   } catch (error) {
@@ -144,4 +148,3 @@ module.exports = {
   calcSentiment,
   analyzeSentiment
 };
-

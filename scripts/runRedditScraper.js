@@ -1,4 +1,11 @@
-const { scrapeRedditPostContent } = require('../helpers/redditHelper');
+/**
+ * Manual Reddit Scraper Script
+ *
+ * Run this script to manually trigger Reddit post content scraping.
+ * Usage: node scripts/runRedditScraper.js
+ */
+
+const { scrapeRedditPostContent } = require('../services/redditService');
 
 // Run the scraping function
 scrapeRedditPostContent()
@@ -10,4 +17,3 @@ scrapeRedditPostContent()
     console.error('Error running scraper:', error);
     process.exit(1);
   });
-

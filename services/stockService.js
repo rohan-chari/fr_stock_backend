@@ -1,9 +1,79 @@
 const axios = require('axios');
-const { PrismaClient } = require('@prisma/client');
-const { redditHelper } = require('../helpers');
-const { scrapeRedditPostContent } = require('../helpers/redditHelper');
+const prisma = require('../config/database');
+const { searchRedditStock, scrapePostsByIds } = require('./redditService');
 
-const prisma = new PrismaClient();
+/**
+ * Formats posts from database into API response format
+ */
+const formatPostsResponse = (param, posts) => {
+  return {
+    param,
+    stockSymbol: param,
+    totalPosts: posts.length,
+    posts: posts.map(post => ({
+      id: post.redditId,
+      title: post.content?.postContent?.title || '',
+      url: post.url,
+      postTime: post.postTime.toISOString()
+    }))
+  };
+};
+
+/**
+ * Background refresh: searches Reddit and scrapes new posts without blocking
+ */
+const refreshStockInBackground = (param, stock) => {
+  // Fire and forget - don't await
+  (async () => {
+    try {
+      console.log(`[Background] Starting refresh for ${param}...`);
+      const result = await searchRedditStock(param);
+
+      if (result && result.posts && Array.isArray(result.posts)) {
+        const newPostIds = [];
+
+        for (const post of result.posts) {
+          if (post.id && post.url && post.postTime) {
+            const existing = await prisma.redditPost.findUnique({
+              where: { redditId: post.id }
+            });
+
+            if (existing) {
+              await prisma.redditPost.update({
+                where: { redditId: post.id },
+                data: {
+                  url: post.url,
+                  postTime: new Date(post.postTime),
+                  stockId: stock.id
+                }
+              });
+            } else {
+              const created = await prisma.redditPost.create({
+                data: {
+                  redditId: post.id,
+                  url: post.url,
+                  postTime: new Date(post.postTime),
+                  stockId: stock.id
+                }
+              });
+              newPostIds.push(created.id);
+            }
+          }
+        }
+
+        // Scrape new posts in background (also non-blocking)
+        if (newPostIds.length > 0) {
+          scrapePostsByIds(newPostIds).catch(err =>
+            console.error(`[Background] Scrape failed for ${param}:`, err.message)
+          );
+        }
+      }
+      console.log(`[Background] Refresh complete for ${param}`);
+    } catch (error) {
+      console.error(`[Background] Refresh failed for ${param}:`, error.message);
+    }
+  })();
+};
 
 const getStockByParam = async (param) => {
   // Find or create the stock in the database first
@@ -13,8 +83,7 @@ const getStockByParam = async (param) => {
       stock = await prisma.stock.findUnique({
         where: { symbol: param.toUpperCase() }
       });
-      
-      // If stock doesn't exist, create it
+
       if (!stock) {
         stock = await prisma.stock.create({
           data: {
@@ -30,97 +99,76 @@ const getStockByParam = async (param) => {
     }
   }
 
-  // Check if we should scrape (only if 5+ minutes since last search)
-  let shouldScrape = true;
-  let result = null;
-  
-  if (stock) {
-    try {
-      // Find the most recent updatedAt timestamp for posts of this stock (tracks when we last searched)
-      const mostRecentPost = await prisma.redditPost.findFirst({
-        where: { stockId: stock.id },
-        orderBy: { updatedAt: 'desc' },
-        select: { updatedAt: true }
-      });
-
-      if (mostRecentPost && mostRecentPost.updatedAt) {
-        const now = new Date();
-        const lastSearched = new Date(mostRecentPost.updatedAt);
-        const minutesSinceLastSearch = (now - lastSearched) / (1000 * 60);
-        
-        // Only scrape if it's been 5+ minutes
-        if (minutesSinceLastSearch < 5) {
-          shouldScrape = false;
-          
-          // Return posts from database instead
-          const dbPosts = await prisma.redditPost.findMany({
-            where: { stockId: stock.id },
-            orderBy: { postTime: 'desc' }
-          });
-
-          result = {
-            param,
-            stockSymbol: param,
-            totalPosts: dbPosts.length,
-            posts: dbPosts.map(post => ({
-              id: post.redditId,
-              title: '', // Not stored in reddit_posts table
-              url: post.url,
-              postTime: post.postTime.toISOString()
-            }))
-          };
-        }
-      }
-    } catch (error) {
-      console.error(`Error checking last search time for ${param}:`, error.message);
-      // Continue with scrape if check fails
-    }
+  if (!stock) {
+    return { param, stockSymbol: param, totalPosts: 0, posts: [] };
   }
 
-  // Perform Reddit scrape if needed
-  if (shouldScrape) {
-    result = await redditHelper.searchRedditStock(param);
-    
-    // Save posts to database (don't set scrapedAt - that's for content scraping)
-    if (result && result.posts && Array.isArray(result.posts) && stock) {
-      for (const post of result.posts) {
-        try {
-          // Only save if we have required fields
-          if (post.id && post.url && post.postTime) {
-            await prisma.redditPost.upsert({
+  // Check if we have existing posts with content - if so, return immediately
+  const existingPosts = await prisma.redditPost.findMany({
+    where: { stockId: stock.id },
+    include: { content: true },
+    orderBy: { postTime: 'desc' }
+  });
+
+  const hasScrapedContent = existingPosts.some(p => p.content);
+
+  if (hasScrapedContent) {
+    // Return existing data immediately, refresh in background
+    console.log(`[${param}] Returning cached data, refreshing in background...`);
+    refreshStockInBackground(param, stock);
+    return formatPostsResponse(param, existingPosts);
+  }
+
+  // No existing data - first-ever lookup, wait for Reddit search
+  console.log(`[${param}] First lookup, searching Reddit...`);
+  const result = await searchRedditStock(param);
+
+  // Save posts to database
+  if (result && result.posts && Array.isArray(result.posts)) {
+    const newPostIds = [];
+
+    for (const post of result.posts) {
+      try {
+        if (post.id && post.url && post.postTime) {
+          const existing = await prisma.redditPost.findUnique({
+            where: { redditId: post.id }
+          });
+
+          if (existing) {
+            await prisma.redditPost.update({
               where: { redditId: post.id },
-              update: {
+              data: {
                 url: post.url,
                 postTime: new Date(post.postTime),
                 stockId: stock.id
-                // Don't set scrapedAt here - that's for content scraping
-              },
-              create: {
+              }
+            });
+          } else {
+            const created = await prisma.redditPost.create({
+              data: {
                 redditId: post.id,
                 url: post.url,
                 postTime: new Date(post.postTime),
                 stockId: stock.id
-                // scrapedAt stays null so scrapeRedditPostContent will pick it up
               }
             });
+            newPostIds.push(created.id);
           }
-        } catch (error) {
-          // Log error but don't fail the request
-          console.error(`Error saving Reddit post ${post.id} to database:`, error.message);
         }
-      }
-      
-      // After saving posts, scrape their content and comments
-      console.log(`Scraping content for newly discovered posts for ${param}...`);
-      try {
-        await scrapeRedditPostContent();
       } catch (error) {
-        console.error(`Error scraping post content for ${param}:`, error.message);
-        // Don't fail the request if content scraping fails
+        console.error(`Error saving Reddit post ${post.id}:`, error.message);
       }
     }
+
+    // Scrape content in background - don't block response
+    if (newPostIds.length > 0) {
+      console.log(`[${param}] Scraping ${newPostIds.length} posts in background...`);
+      scrapePostsByIds(newPostIds).catch(err =>
+        console.error(`[Background] Scrape failed for ${param}:`, err.message)
+      );
+    }
   }
-  
+
   return result;
 };
 

@@ -1,5 +1,5 @@
 const routes = require('../routes');
-const { routeHelper } = require('../helpers');
+const { routeHelper } = require('../utils');
 
 const getHealthStatus = () => {
   const formattedRoutes = routeHelper.formatRoutes(routes);

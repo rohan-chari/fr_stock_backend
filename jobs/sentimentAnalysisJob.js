@@ -7,7 +7,7 @@
  */
 
 const cron = require('node-cron');
-const { calcSentiment } = require('../helpers/sentimentHelper');
+const { calcSentiment } = require('../services/sentimentService');
 const schedulerConfig = require('../config/scheduler');
 
 let job = null;

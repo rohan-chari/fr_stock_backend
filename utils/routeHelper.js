@@ -1,6 +1,12 @@
+/**
+ * Route Helper Utility
+ *
+ * Utility functions for formatting and working with routes.
+ */
+
 const formatRoutes = (routes) => {
   const formattedRoutes = {};
-  
+
   Object.keys(routes).forEach(path => {
     const methods = Object.keys(routes[path]);
     formattedRoutes[path] = methods;
@@ -15,4 +21,3 @@ const formatRoutes = (routes) => {
 module.exports = {
   formatRoutes
 };
-
