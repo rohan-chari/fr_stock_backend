@@ -2,27 +2,43 @@ const axios = require('axios');
 const prisma = require('../config/database');
 const { searchRedditStock, scrapePostsByIds } = require('./redditService');
 
+// 10 minute cooldown between Reddit searches for the same stock
+const SEARCH_COOLDOWN_MS = 10 * 60 * 1000;
+
 /**
  * Formats posts from database into API response format
  * Includes comments with sentiment data
  */
 const formatPostsResponse = (param, posts) => {
+  // Collect all sentiment values (non-null only)
+  const allSentiments = posts.flatMap(post =>
+    (post.comments || [])
+      .map(c => c.sentiment)
+      .filter(s => s !== null && s !== undefined)
+  );
+
+  const averageSentiment = allSentiments.length > 0
+    ? allSentiments.reduce((sum, s) => sum + s, 0) / allSentiments.length
+    : null;
+
   return {
     param,
     stockSymbol: param,
     totalPosts: posts.length,
+    totalComments: allSentiments.length,
+    averageSentiment,
     posts: posts.map(post => ({
       id: post.redditId,
       title: post.content?.postContent?.title || '',
       url: post.url,
       postTime: post.postTime.toISOString(),
-      comments: (post.comments || []).map(comment => ({
-        id: comment.redditId,
-        body: comment.body,
-        upvotes: comment.upvotes,
-        sentiment: comment.sentiment,
-        createdAt: comment.createdAtUtc.toISOString()
-      }))
+      comments: (post.comments || [])
+        .filter(comment => comment.sentiment !== null && comment.sentiment !== undefined)
+        .map(comment => ({
+          id: comment.redditId,
+          body: comment.body,
+          sentiment: comment.sentiment
+        }))
     }))
   };
 };
@@ -126,15 +142,36 @@ const getStockByParam = async (param) => {
   const hasScrapedContent = existingPosts.some(p => p.content);
 
   if (hasScrapedContent) {
-    // Return existing data immediately, refresh in background
-    console.log(`[${param}] Returning cached data, refreshing in background...`);
-    refreshStockInBackground(param, stock);
+    // Return existing data immediately, refresh in background if cooldown expired
+    const now = Date.now();
+    const lastSearched = stock.lastSearchedAt ? stock.lastSearchedAt.getTime() : 0;
+    const timeSinceLastSearch = now - lastSearched;
+
+    if (timeSinceLastSearch >= SEARCH_COOLDOWN_MS) {
+      console.log(`[${param}] Returning cached data, refreshing in background...`);
+      // Update lastSearchedAt IMMEDIATELY to prevent duplicate refreshes
+      await prisma.stock.update({
+        where: { id: stock.id },
+        data: { lastSearchedAt: new Date() }
+      });
+      refreshStockInBackground(param, stock);
+    } else {
+      const remainingMs = SEARCH_COOLDOWN_MS - timeSinceLastSearch;
+      console.log(`[${param}] Returning cached data (cooldown: ${Math.round(remainingMs / 1000)}s remaining)`);
+    }
+
     return formatPostsResponse(param, existingPosts);
   }
 
   // No existing data - first-ever lookup, wait for Reddit search
   console.log(`[${param}] First lookup, searching Reddit...`);
   const result = await searchRedditStock(param);
+
+  // Update lastSearchedAt after successful Reddit search
+  await prisma.stock.update({
+    where: { id: stock.id },
+    data: { lastSearchedAt: new Date() }
+  });
 
   // Save posts to database
   if (result && result.posts && Array.isArray(result.posts)) {
