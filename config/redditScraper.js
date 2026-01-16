@@ -43,10 +43,11 @@ const MAX_POST_AGE_MS = 7 * MS_PER_DAY;
 
 /**
  * Sleep delay configuration for rate limiting between scrapes
+ * (With 30 rotating residential proxies, effective per-IP rate is much lower)
  */
 const RATE_LIMIT = {
-  MIN_DELAY_MS: MS_PER_SECOND,              // 1 second
-  MAX_DELAY_MS: 3 * MS_PER_SECOND            // 3 seconds
+  MIN_DELAY_MS: 500,                         // 0.5 seconds
+  MAX_DELAY_MS: 1500                         // 1.5 seconds
 };
 
 module.exports = {

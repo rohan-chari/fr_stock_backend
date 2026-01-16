@@ -8,7 +8,7 @@ const getAllStocks = async (req, res) => {
           select: { redditPosts: true }
         }
       },
-      orderBy: { symbol: 'asc' }
+      orderBy: { redditPosts: { _count: 'desc' } }
     });
 
     const response = {

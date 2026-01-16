@@ -1,6 +1,7 @@
 const axios = require('axios');
 const prisma = require('../config/database');
-const { searchRedditStock, scrapePostsByIds } = require('./redditService');
+const { searchRedditStock, scrapePostsByIds, scrapeSubredditPosts } = require('./redditService');
+const { withLogging, SERVICES } = require('../utils/apiLogger');
 
 // 10 minute cooldown between Reddit searches for the same stock
 const SEARCH_COOLDOWN_MS = 10 * 60 * 1000;
@@ -10,11 +11,11 @@ const SEARCH_COOLDOWN_MS = 10 * 60 * 1000;
  * Includes comments with sentiment data
  */
 const formatPostsResponse = (param, posts) => {
-  // Collect all sentiment values (non-null only)
+  // Collect all sentiment values (non-null only, excluding flagged comments)
   const allSentiments = posts.flatMap(post =>
     (post.comments || [])
+      .filter(c => !c.flagForDelete && c.sentiment !== null && c.sentiment !== undefined)
       .map(c => c.sentiment)
-      .filter(s => s !== null && s !== undefined)
   );
 
   const averageSentiment = allSentiments.length > 0
@@ -33,7 +34,7 @@ const formatPostsResponse = (param, posts) => {
       url: post.url,
       postTime: post.postTime.toISOString(),
       comments: (post.comments || [])
-        .filter(comment => comment.sentiment !== null && comment.sentiment !== undefined)
+        .filter(comment => !comment.flagForDelete && comment.sentiment !== null && comment.sentiment !== undefined)
         .map(comment => ({
           id: comment.redditId,
           body: comment.body,
@@ -92,6 +93,18 @@ const refreshStockInBackground = (param, stock) => {
           );
         }
       }
+
+      // Also scrape official subreddit if configured
+      if (stock.officialSubreddit) {
+        console.log(`[Background] Scraping official subreddit r/${stock.officialSubreddit} for ${param}...`);
+        const subredditPostIds = await scrapeSubredditPosts(stock.officialSubreddit, stock.id);
+        if (subredditPostIds.length > 0) {
+          scrapePostsByIds(subredditPostIds).catch(err =>
+            console.error(`[Background] Subreddit scrape failed for ${param}:`, err.message)
+          );
+        }
+      }
+
       console.log(`[Background] Refresh complete for ${param}`);
     } catch (error) {
       console.error(`[Background] Refresh failed for ${param}:`, error.message);
@@ -229,11 +242,20 @@ const searchStock = async (query) => {
   if (apiKey) {
     try {
       const url = `https://finnhub.io/api/v1/search?q=${encodeURIComponent(query)}&exchange=US&token=${apiKey}`;
-      
-      const response = await axios.get(url, {
-        headers: { 'User-Agent': 'request' }
-      });
-      
+
+      const response = await withLogging(
+        SERVICES.FINNHUB,
+        () => axios.get(url, {
+          headers: { 'User-Agent': 'request' }
+        }),
+        {
+          endpoint: '/search',
+          method: 'GET',
+          requestSummary: `Search stocks for "${query}"`,
+          getResponseSummary: (res) => `Found ${res.data?.result?.length || 0} stocks`
+        }
+      );
+
       if (response.status === 200 && response.data && response.data.result && Array.isArray(response.data.result)) {
         
         // Save results to database if they don't exist

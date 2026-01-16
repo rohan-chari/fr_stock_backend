@@ -6,6 +6,7 @@
 
 const prisma = require('../config/database');
 const openai = require('../config/openai');
+const { logApiRequest, SERVICES } = require('../utils/apiLogger');
 
 /**
  * Calculates sentiment for Reddit comments
@@ -80,8 +81,12 @@ const calcSentiment = async () => {
 };
 
 async function analyzeSentiment(comment) {
+  const requestedAt = new Date();
+  let response = null;
+  let error = null;
+
   try {
-    const response = await openai.chat.completions.create({
+    response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       response_format: { type: 'json_object' },
       temperature: 0.2,
@@ -115,11 +120,41 @@ Return JSON only: {"sentiment": <number>, "flagForDelete": <boolean>}`
     const responseContent = response.choices[0].message.content;
     const parsedResponse = JSON.parse(responseContent);
 
+    // Log successful API call
+    const respondedAt = new Date();
+    logApiRequest({
+      service: SERVICES.OPENAI,
+      endpoint: '/chat/completions',
+      method: 'POST',
+      requestedAt,
+      respondedAt,
+      statusCode: 200,
+      success: true,
+      requestSummary: `Sentiment analysis for ${comment.stockTicker} comment`,
+      responseSummary: `sentiment=${parsedResponse.sentiment}, flagForDelete=${parsedResponse.flagForDelete}`
+    }).catch(() => {}); // Silently ignore logging errors
+
     // Return the analyzed comment (should be a single object, not an array)
     return parsedResponse;
-  } catch (error) {
-    console.error(`Error analyzing sentiment for comment ${comment.id}:`, error);
-    throw error;
+  } catch (err) {
+    error = err;
+
+    // Log failed API call
+    const respondedAt = new Date();
+    logApiRequest({
+      service: SERVICES.OPENAI,
+      endpoint: '/chat/completions',
+      method: 'POST',
+      requestedAt,
+      respondedAt,
+      statusCode: err.status || null,
+      success: false,
+      errorMessage: err.message,
+      requestSummary: `Sentiment analysis for ${comment.stockTicker} comment`
+    }).catch(() => {}); // Silently ignore logging errors
+
+    console.error(`Error analyzing sentiment for comment ${comment.id}:`, err);
+    throw err;
   }
 }
 

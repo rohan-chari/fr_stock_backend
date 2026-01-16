@@ -4,6 +4,8 @@ const cors = require('cors');
 const routes = require('./routes');
 const { startRedditScraperJob } = require('./jobs/redditScraperJob');
 const { startSentimentAnalysisJob } = require('./jobs/sentimentAnalysisJob');
+const { startSubredditScraperJob } = require('./jobs/subredditScraperJob');
+const { initializeProxies } = require('./utils/proxyManager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,10 +52,14 @@ process.on('uncaughtException', (error) => {
   // Don't exit, let the server continue running
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-  
+
+  // Initialize proxies (validates them on startup)
+  await initializeProxies();
+
   // Start scheduled jobs
   startRedditScraperJob();
   startSentimentAnalysisJob();
+  startSubredditScraperJob();
 });

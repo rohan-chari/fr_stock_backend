@@ -1,12 +1,13 @@
 /**
  * Scheduled Jobs Module
- * 
+ *
  * Centralized exports for all scheduled jobs.
  * Provides a single entry point for job management.
  */
 
 const redditScraperJob = require('./redditScraperJob');
 const sentimentAnalysisJob = require('./sentimentAnalysisJob');
+const subredditScraperJob = require('./subredditScraperJob');
 
 /**
  * Starts all scheduled jobs
@@ -14,6 +15,7 @@ const sentimentAnalysisJob = require('./sentimentAnalysisJob');
 const startAllJobs = () => {
   redditScraperJob.startRedditScraperJob();
   sentimentAnalysisJob.startSentimentAnalysisJob();
+  subredditScraperJob.startSubredditScraperJob();
 };
 
 /**
@@ -22,6 +24,7 @@ const startAllJobs = () => {
 const stopAllJobs = () => {
   redditScraperJob.stopRedditScraperJob();
   sentimentAnalysisJob.stopSentimentAnalysisJob();
+  subredditScraperJob.stopSubredditScraperJob();
 };
 
 /**
@@ -30,7 +33,8 @@ const stopAllJobs = () => {
 const getAllJobsStatus = () => {
   return {
     redditScraper: redditScraperJob.getJobStatus(),
-    sentimentAnalysis: sentimentAnalysisJob.getJobStatus()
+    sentimentAnalysis: sentimentAnalysisJob.getJobStatus(),
+    subredditScraper: subredditScraperJob.getJobStatus()
   };
 };
 
@@ -39,6 +43,7 @@ module.exports = {
   stopAllJobs,
   getAllJobsStatus,
   redditScraperJob,
-  sentimentAnalysisJob
+  sentimentAnalysisJob,
+  subredditScraperJob
 };
 

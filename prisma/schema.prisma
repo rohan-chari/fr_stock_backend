@@ -36,7 +36,8 @@ model RedditPost {
   postTime     DateTime
   stockId      Int
   scrapedAt    DateTime?
-  
+  source       String   @default("search")  // "search" | "subreddit"
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   
@@ -77,4 +78,42 @@ model RedditComment {
 
   @@index([redditPostId])
   @@map("reddit_comments")
+}
+
+model ExternalService {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique  // "reddit" | "finnhub" | "openai"
+  description String?
+  baseUrl     String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiLogs     ExternalApiLog[]
+
+  @@map("external_services")
+}
+
+model ExternalApiLog {
+  id              Int      @id @default(autoincrement())
+  serviceId       Int
+  endpoint        String   // The specific endpoint called
+  method          String   // GET, POST, etc.
+  requestedAt     DateTime @default(now())
+  respondedAt     DateTime?
+  durationMs      Int?     // Response time in milliseconds
+  statusCode      Int?     // HTTP status code
+  success         Boolean  @default(false)
+  errorMessage    String?  // Error message if failed
+  requestSummary  String?  // Brief description of the request
+  responseSummary String?  // Brief summary of the response (not full body)
+  proxyUsed       String?  // Masked proxy URL used for request (credentials hidden)
+
+  createdAt       DateTime @default(now())
+
+  service         ExternalService @relation(fields: [serviceId], references: [id])
+
+  @@index([serviceId])
+  @@index([requestedAt])
+  @@map("external_api_logs")
 }
