@@ -25,6 +25,9 @@ Object.keys(routes).forEach(path => {
 // Handle parameterized route /stock/:param
 app.get('/stock/:param', require('./controllers/stockController').getStock);
 
+// Handle parameterized route /admin/stocks/:symbol
+app.patch('/admin/stocks/:symbol', require('./controllers/adminController').updateStock);
+
 // Global error handler middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);

@@ -18,10 +18,11 @@ model Stock {
   description  String
   displaySymbol String
   type         String
-  
+  officialSubreddit String?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  
+
   redditPosts  RedditPost[]
 
   @@map("stocks")
