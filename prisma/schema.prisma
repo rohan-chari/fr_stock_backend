@@ -13,6 +13,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 model Stock {
+  id           Int    @id @default(autoincrement())
+  symbol       String @unique
+  description  String
+  displaySymbol String
+  type         String
+  officialSubreddit String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  redditPosts  RedditPost[]
   id             Int       @id @default(autoincrement())
   symbol         String    @unique
   description    String
